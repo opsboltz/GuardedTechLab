@@ -2,4 +2,4 @@
 
 # ps $filename
 or
-$ bash $filename
+# bash $filename
