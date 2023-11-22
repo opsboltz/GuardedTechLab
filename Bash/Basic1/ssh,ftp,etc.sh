@@ -16,7 +16,7 @@ sudo apt update
 sudo apt install --only-upgrade firefox
 
 # Remove known hacking tools (Wireshark, Nmap, and more)
-sudo apt purge -y wireshark nmap
+sudo apt purge -y wireshark nmap nc ncat 
 
 # Secure Apache with =indexes and security headers
 sed -i 's/Options Indexes FollowSymLinks/Options -Indexes FollowSymLinks/' /etc/apache2/apache2.conf
