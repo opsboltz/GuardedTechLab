@@ -2,16 +2,16 @@
 
 # Update package information
 sudo apt update
-sudo apt upgrade
+sudo apt upgrade -y
 
-# Install OpenVAS
+# Install OpenVAS and Lynis
 sudo apt install -y openvas
 
-# install Lynis
 echo "deb https://packages.cisofy.com/community/lynis/deb/ stable main" | sudo tee /etc/apt/sources.list.d/cisofy-lynis.list
 wget -O - https://packages.cisofy.com/keys/cisofy-software-public.key | sudo apt-key add -
 sudo apt update
 sudo apt install lynis -y
+
 lynis show version
 sleep 1
 clear

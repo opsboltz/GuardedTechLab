@@ -1,4 +1,5 @@
 #!/usr/bin/zsh
+
 option=0
 
 menu() {
@@ -6,68 +7,45 @@ menu() {
         option=0
     fi
 
-echo "1.Account Passwords
-2.ssh,ftp,etc 
-3.Clamtk,etc 
-4.OpenVAS 
-5.copy the passwd file 
-6.see all commands/applications in /bin 
-7.uninstall apps
-8.run 1,2,3 and 4"
-	echo -n "
-Option:"
+    echo "Main Menu:
+    1. Account Passwords
+    2. SSH, FTP, etc.
+    3. ClamTK, etc.
+    4. OpenVAS
+    5. Copy the passwd file
+    6. See all commands/applications in /bin
+    7. Uninstall apps
+    8. Run 1, 2, 3, and 4"
+    echo -n "Option:"
     read option
     clear
 }
 
 menu
 
-if [ "$option" = 1 ]; then
-    bash Accounts/Accounts.sh
-    menu
-fi
+case $option in
+    1) bash Accounts/Accounts.sh ;;
+    2) bash Basic1/ssh,ftp,etc.sh ;;
+    3) bash Basic2/ClamTK,etc.sh ;;
+    4) bash Basic3/OpenVAS.sh ;;
+    5) cp /etc/passwd . && echo "Passwd File Extracted" ;;
+    6) ls /bin > commands_apps ;;
+    7) 
+        echo "What would you like to delete?"
+        read delete
+        sudo apt remove "$delete"
+        sudo snap remove "$delete"
+        echo "You can check if that worked"
+        sleep 3
+        clear
+        ;;
+    8) 
+        bash Accounts/Accounts.sh
+        bash Basic1/ssh,ftp,etc.sh
+        bash Basic2/ClamTK,etc.sh
+        bash Basic3/OpenVAS.sh
+        ;;
+    *) ;;
+esac
 
-if [ "$option" = 2 ]; then
-    bash Basic1/ssh,ftp,etc.sh
-    menu
-fi
-
-if [ "$option" = 3 ]; then
-    bash Basic2/ClamTK,etc.sh
-    menu
-fi
-
-if [ "$option" = 4 ]; then
-    bash Basic3/OpenVAS.sh
-    menu
-fi
-
-if [ "$option" = 5 ]; then
-    cp /etc/passwd .
-    echo "Passwd File Extracted"
-    menu
-fi
-
-if [ "$option" = 6 ]; then
-    ls /bin >> commands_apps
-    menu
-fi
-
-if [ "$option" = 7 ]; then
-    echo "what would you like to delete"
-    read delete
-    apt remove "$delete"
-    snap remove "$delete"
-    echo "you can check if that worked"
-    sleep 3
-    clear
-    menu
-fi
-
-if [ "$option" = 8 ]; then
-    bash Accounts/Accounts.sh
-    bash Basic1/ssh,ftp,etc.sh
-    bash Basic2/ClamTK,etc.sh
-    bash Basic3/OpenVAS.sh
-    menu
-fi
+menu

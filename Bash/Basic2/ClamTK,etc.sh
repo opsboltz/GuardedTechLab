@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# Install ClamTk and run it
-sudo apt-get update && sudo apt-get install -y clamtk && sudo apt-get install -t clamav
+# Install ClamAV and run it
+sudo apt-get update && sudo apt-get install -y clamav clamtk
 sudo freshclam
-clamtk
 clamscan -r /
 clear
 
