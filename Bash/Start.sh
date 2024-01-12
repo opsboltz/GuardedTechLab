@@ -1,5 +1,6 @@
 #!/usr/bin/zsh
 #Steven.B Cyber Patriot Script to run multiple script that may lead to another script
+chmod 777 */*
 option=0
 echo "1 sec, Updating"
 apt update -y
