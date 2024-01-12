@@ -1,6 +1,12 @@
 #!/usr/bin/zsh
-
+#Steven.B Cyber Patriot Script to run multiple script that may lead to another script
 option=0
+echo "1 sec, Updating"
+apt update -y
+dpkg --configure -a
+apt upgrade -y
+
+
 
 menu() {
     if [ "$option" -gt 0 ]; then
@@ -33,8 +39,8 @@ case $option in
     7) 
         echo "What would you like to delete?"
         read delete
-        sudo apt remove "$delete"
-        sudo snap remove "$delete"
+        apt remove "$delete"
+        snap remove "$delete"
         echo "You can check if that worked"
         sleep 3
         clear
