@@ -1,28 +1,28 @@
 #!/bin/bash
 
 # Install ClamAV and run it
-sudo apt-get update && sudo apt-get install -y clamav clamtk
-sudo freshclam
+apt-get update && sudo apt-get install -y clamav clamtk
+freshclam
 clamscan -r /
 clear
 
 # Install BUM and run it
-sudo apt-get install -y bum
+apt-get install -y bum
 bum
 clear
 
 # Install SELinux and AppArmor
-sudo apt-get install -y selinux-utils apparmor-utils
+apt-get install -y selinux-utils apparmor-utils
 clear
 
 # Enable and start SELinux
-sudo selinux-activate
-sudo systemctl start selinux
+selinux-activate
+systemctl start selinux
 clear
 
 # Enable and start AppArmor
-sudo aa-enforce /etc/apparmor.d/*
-sudo systemctl start apparmor
+aa-enforce /etc/apparmor.d/*
+systemctl start apparmor
 clear
 
 # All done!
