@@ -6,15 +6,15 @@ login_defs="/etc/login.defs"
 
 # Function to update pwquality.conf
 update_pwquality_conf() {
-    echo "minlen=8 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1" | sudo tee $pwquality_conf
+    echo "minlen=8 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1" | sudo tee "$pwquality_conf"
     echo "Updated $pwquality_conf"
 }
 
 # Function to update login.defs for password aging
 update_login_defs() {
-    sudo sed -i 's/PASS_MAX_DAYS\t99999/PASS_MAX_DAYS\t90/' $login_defs
-    sudo sed -i 's/PASS_MIN_DAYS\t0/PASS_MIN_DAYS\t10/' $login_defs
-    sudo sed -i 's/PASS_WARN_AGE\t7/PASS_WARN_AGE\t7/' $login_defs
+    sudo sed -i 's/PASS_MAX_DAYS\t99999/PASS_MAX_DAYS\t90/' "$login_defs"
+    sudo sed -i 's/PASS_MIN_DAYS\t0/PASS_MIN_DAYS\t10/' "$login_defs"
+    sudo sed -i 's/PASS_WARN_AGE\t7/PASS_WARN_AGE\t7/' "$login_defs"
     echo "Updated $login_defs"
 }
 
@@ -25,9 +25,19 @@ set_password_expiry() {
     read -p "Enter minimum days before password change: " min_days
     read -p "Enter days of warning before password expires: " warn_days
 
-    sudo chage -M $max_days -m $min_days -W $warn_days $username
+    sudo chage -M "$max_days" -m "$min_days" -W "$warn_days" "$username"
     echo "Password expiry set for $username"
 }
+
+# Function to run the PAM configuration script
+run_pam_config_script() {
+    # PAM configuration script code
+    echo "PAM configuration script code goes here"
+    # Add any additional configuration you need
+}
+
+# Run the PAM configuration script at the start
+run_pam_config_script
 
 # Main menu
 echo "Password Policy Configuration Script"
@@ -45,3 +55,4 @@ case $option in
     4) echo "Exiting script." ;;
     *) echo "Invalid option. Exiting script." ;;
 esac
+
