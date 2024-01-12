@@ -1,102 +1,92 @@
 #!/bin/bash
 
-generate_password() {
-  lowercase="abcdefghijklmnopqrstuvwxyz"
-  uppercase="ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-  numbers="0123456789"
-  special_chars="!@#$%^&*()-_=+[]{}|;:'\",.<>/?"
-  all_chars="${lowercase}${uppercase}${numbers}${special_chars}"
-  
-  while true; do
-    password=$(head /dev/urandom | tr -dc "$all_chars" | head -c16)
-    if [[ "$password" =~ [A-Z] && "$password" =~ [a-z] && "$password" =~ [0-9] && "$password" =~ [$special_chars] ]]; then
-      echo "$password"
-      break
+# Function to run the Pam_config.sh script
+run_pam_config_script() {
+    # Specify the path to Pam_config.sh
+    pam_config_script="path_to_Pam_config.sh"
+
+    # Check if the script exists before running
+    if [ -f "$pam_config_script" ]; then
+        # Run Pam_config.sh script
+        source "$pam_config_script"
+        echo "Executed Pam_config.sh script"
+    else
+        echo "Error: Pam_config.sh script not found at $pam_config_script"
     fi
-  done
 }
 
-log_password_change() {
-  echo "$1:$2" >> /path/to/password_changes.txt
+# Function to delete suspicious users
+delete_suspicious_users() {
+    # Get a list of all users
+    all_users=($(getent passwd | cut -d: -f1))
+
+    # Authorized and unauthorized users from user input
+    IFS=',' read -ra authUsersArray <<< "$Authusers"
+    IFS=',' read -ra unauthUsersArray <<< "$UnauthedUsers"
+
+    # Combine authorized and unauthorized users
+    all_auth_unauth_users=("${authUsersArray[@]}" "${unauthUsersArray[@]}")
+
+    # Loop through all users and delete suspicious ones
+    for user in "${all_users[@]}"; do
+        # Check if the user is not in the authorized or unauthorized list
+        if [[ ! " ${all_auth_unauth_users[@]} " =~ " $user " ]]; then
+            # Check if the user's name is common (modify as needed)
+            if [[ "$user" =~ ^(john|mary|jane)$ ]]; then
+                # Add any additional criteria to identify suspicious users
+                # For now, just print a message (replace with deletion logic)
+                echo "Deleting suspicious user: $user"
+                # Uncomment the following line to delete the user (be cautious!)
+                # sudo deluser "$user" --remove-home
+            fi
+        fi
+    done
 }
 
-log_account_deletion() {
-  echo "$1" >> /path/to/account_deletions.txt
-}
+echo "Welcome"
+sleep 1
 
-main_menu() {
-  echo "Main Menu:"
-  echo "1. Change Password"
-  echo "2. Delete Account"
-  echo "3. Exit"
-}
+echo "Separate account names with commas in questions"
+sleep 5
+clear
 
-while true; do
-  main_menu
-  read -p "Choose an option (1/2/3): " option
+echo "What are all the authorized users (comma-separated)"
+read Authusers
 
-  case $option in
-    1)
-      user_list=()
-      while IFS=: read -r username _ uid gid gecos home shell; do
-        primary_group=$(id -gn "$username")
-        user_list+=("$username: primary group: $primary_group")
-      done < /etc/passwd
+echo "What are all the unauthorized users (comma-separated)"
+read UnauthedUsers
 
-      echo "Users and their primary groups on the system:"
-      for ((i = 0; i < ${#user_list[@]}; i++)); do
-        echo "($i) ${user_list[i]}"
-      done
+# Convert the comma-separated lists into arrays
+IFS=',' read -ra authUsersArray <<< "$Authusers"
+IFS=',' read -ra unauthUsersArray <<< "$UnauthedUsers"
 
-      read -p "Enter the number of the user you want to modify or delete: " user_number
-      selected_user="${user_list[user_number]}"
-
-      if [ -z "$selected_user" ]; then
-        echo "Invalid user number. Returning to the main menu."
-        continue
-      fi
-
-      echo "Selected user: $selected_user"
-
-      new_password=$(generate_password)
-
-      echo "New Password for $selected_user: $new_password"
-      echo "$selected_user:$new_password" | sudo chpasswd
-      log_password_change "$selected_user" "$new_password"
-      echo "Password changed successfully."
-      ;;
-    2)
-      user_list=()
-      while IFS=: read -r username _ uid gid gecos home shell; do
-        primary_group=$(id -gn "$username")
-        user_list+=("$username: primary group: $primary_group")
-      done < /etc/passwd
-
-      echo "Users and their primary groups on the system:"
-      for ((i = 0; i < ${#user_list[@]}; i++)); do
-        echo "($i) ${user_list[i]}"
-      done
-
-      read -p "Enter the number of the user you want to modify or delete: " user_number
-      selected_user="${user_list[user_number]}"
-
-      if [ -z "$selected_user" ]; then
-        echo "Invalid user number. Returning to the main menu."
-        continue
-      fi
-
-      echo "Selected user: $selected_user"
-
-      sudo userdel -r "$selected_user"
-      log_account_deletion "$selected_user"
-      echo "Account $selected_user deleted."
-      ;;
-    3)
-      echo "Exiting the script."
-      exit 0
-      ;;
-    *)
-      echo "Invalid option. Please choose 1, 2, or 3."
-      ;;
-  esac
+# Loop through the array of authorized users and make them root
+for authUser in "${authUsersArray[@]}"; do
+    # Add your command to make authUser root here
+    usermod -aG sudo "$authUser"
+    echo "Making $authUser a root user"
+    
+    # Change the password for authUser
+    new_password="your_secure_password"
+    echo "$authUser:$new_password" | chpasswd
+    echo "Changing password for $authUser"
 done
+
+# Loop through the array of unauthorized users and revoke root access
+for unauthUser in "${unauthUsersArray[@]}"; do
+    # Add your command to revoke root access from unauthUser here
+    deluser "$unauthUser" sudo
+    echo "Revoking root access from $unauthUser"
+    
+    # Change the password for unauthUser
+    new_password="your_secure_password"
+    echo "$unauthUser:$new_password" | chpasswd
+    echo "Changing password for $unauthUser"
+done
+
+# Run the Pam_config.sh script
+run_pam_config_script
+
+# Delete suspicious users
+delete_suspicious_users
+
