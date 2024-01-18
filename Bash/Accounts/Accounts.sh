@@ -3,7 +3,7 @@
 # Function to run the Pam_config.sh script
 run_pam_config_script() {
     # Specify the path to Pam_config.sh
-    pam_config_script="path_to_Pam_config.sh"
+    pam_config_script="/home/ubuntu/Desktop/GuardedTechLab-bash/Bash/Accounts/Pam_config.sh"
 
     # Check if the script exists before running
     if [ -f "$pam_config_script" ]; then
@@ -67,7 +67,7 @@ for authUser in "${authUsersArray[@]}"; do
     echo "Making $authUser a root user"
     
     # Change the password for authUser
-    new_password="your_secure_password"
+    new_password="password"
     echo "$authUser:$new_password" | chpasswd
     echo "Changing password for $authUser"
 done
@@ -79,7 +79,7 @@ for unauthUser in "${unauthUsersArray[@]}"; do
     echo "Revoking root access from $unauthUser"
     
     # Change the password for unauthUser
-    new_password="your_secure_password"
+    new_password="password"
     echo "$unauthUser:$new_password" | chpasswd
     echo "Changing password for $unauthUser"
 done
