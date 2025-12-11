@@ -147,7 +147,6 @@ handle_option() {
             log_message "Managing Logs..."
             log_message "1. View a log file"
             log_message "2. Clear a log file"
-            log_message "3. Send log file via mail"
             log_message "4. View Log Folder"
             read -r log_option
             case "$log_option" in
@@ -160,11 +159,6 @@ handle_option() {
                     sudo truncate -s 0 /var/log/"$log_file"
                     ;;
                 3)
-                    read -p "Enter the log file name to send: " log_file
-                    read -p "Enter the recipient email address: " email
-                    sudo mail -s "Log File" "$email" < /var/log/"$log_file"
-                    ;;
-                4)
                     ls /var/log
                     ;;
                 *)
