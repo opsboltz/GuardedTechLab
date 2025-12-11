@@ -375,16 +375,19 @@ handle_option() {
             sudo nmap -A "$target_ip"
             ;;
         24)
-            read -p "Enter usernames to change (comma-separated): " users
-            read -p "Enter new password to apply to all users: " passwordchange
+          for i in ${users//,/ }
+          do
+              read -p "Change password for $i? (y/n): " confirm
+              if [[ $confirm == [Yy]* ]]; then
+                  echo "$i:$passwordchange" | sudo chpasswd
+                  log_message "Password for user $i changed."
+                  echo "$i:$passwordchange" >> Newusers
+              else
+                  echo "Skipped $i"
+              fi
+          done
+          ;;
 
-            for i in ${users//,/ }
-            do
-                echo "$i:$passwordchange" | sudo chpasswd
-                log_message "Password for user $i changed."
-                echo "$i:$passwordchange" >> Newusers
-            done
-            ;;
 
         25)
             log_message "Exiting..."
