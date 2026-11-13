@@ -1,403 +1,287 @@
 #!/bin/bash
-# Keep the script running
-set -euo pipefail
 
-# Global variables
-PACKAGES=(
-  boxes openssh-server vsftpd neofetch clamav snort fail2ban arp-scan 
-)
+export DEBIAN_FRONTEND=noninteractive
 LOGFILE="/var/log/script.log"
 
-# Function to log messages to a log file and display them to the user
+need_ssh="no"
+need_ftp="no"
+need_samba="no"
+need_email="no"
+
 log_message() {
-    local message="$1"
-    printf "%s\n" "$message" | tee -a "$LOGFILE"
+    printf "%s\n" "$1" | tee -a "$LOGFILE"
 }
 
-# Function to install packages if they are not already installed
+ask() {
+    read -rp "$1 (y/n): " answer
+    [[ "$answer" == [Yy]* ]]
+}
+
 install_package() {
-    if ! dpkg -l | grep -qw "$1"; then
-        log_message "Installing $1..."
-        sudo apt-get install -y "$1"
-    else
+    if dpkg -s "$1" &>/dev/null; then
         log_message "$1 is already installed."
+    else
+        log_message "Installing $1..."
+        apt-get install -y "$1"
     fi
 }
 
-# Function to check if the script is run as root
+remove_package() {
+    if dpkg -s "$1" &>/dev/null; then
+        log_message "Removing $1..."
+        apt-get purge -y "$1"
+    fi
+}
+
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        log_message "This script must be run as root." >&2
+        echo "This script must be run as root."
         exit 1
     fi
 }
 
-# Main function
+ask_services() {
+    echo "Check the README. Only say yes to what is required."
+    ask "Is SSH required?" && need_ssh="yes" || need_ssh="no"
+    ask "Is FTP required?" && need_ftp="yes" || need_ftp="no"
+    ask "Is Samba/SMB required?" && need_samba="yes" || need_samba="no"
+    ask "Is email required?" && need_email="yes" || need_email="no"
+    log_message "ssh=$need_ssh ftp=$need_ftp samba=$need_samba email=$need_email"
+}
+
+update_system() {
+    log_message "Updating system..."
+    apt-get update -y
+    apt-get upgrade -y
+    install_package unattended-upgrades
+    log_message "Update complete."
+}
+
+setup_ssh() {
+    if [ "$need_ssh" = "yes" ]; then
+        install_package openssh-server
+        cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+        sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+        sed -i 's/^#\?PermitEmptyPasswords.*/PermitEmptyPasswords no/' /etc/ssh/sshd_config
+        sed -i 's/^#\?X11Forwarding.*/X11Forwarding no/' /etc/ssh/sshd_config
+        systemctl restart ssh
+        log_message "SSH secured."
+    else
+        if ask "SSH is not required. Remove it?"; then
+            systemctl disable --now ssh
+            remove_package openssh-server
+        fi
+    fi
+}
+
+setup_ftp() {
+    if [ "$need_ftp" = "yes" ]; then
+        install_package vsftpd
+        cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
+        sed -i 's/^#\?anonymous_enable=.*/anonymous_enable=NO/' /etc/vsftpd.conf
+        sed -i 's/^#\?local_enable=.*/local_enable=YES/' /etc/vsftpd.conf
+        sed -i 's/^#\?write_enable=.*/write_enable=YES/' /etc/vsftpd.conf
+        systemctl restart vsftpd
+        log_message "FTP secured."
+    else
+        if ask "FTP is not required. Remove it?"; then
+            systemctl disable --now vsftpd
+            remove_package vsftpd
+        fi
+    fi
+}
+
+setup_samba() {
+    if [ "$need_samba" = "yes" ]; then
+        install_package samba
+        log_message "Check these lines in smb.conf for guest access:"
+        grep -n "guest" /etc/samba/smb.conf
+    else
+        if ask "Samba is not required. Remove it?"; then
+            systemctl disable --now smbd
+            systemctl disable --now nmbd
+            remove_package samba
+        fi
+    fi
+}
+
+setup_email() {
+    if [ "$need_email" = "yes" ]; then
+        install_package postfix
+        log_message "Email is installed. Check /etc/postfix/main.cf by hand."
+    else
+        if ask "Email is not required. Remove it?"; then
+            systemctl disable --now postfix
+            systemctl disable --now dovecot
+            remove_package postfix
+            remove_package dovecot-core
+            remove_package exim4
+            remove_package sendmail
+        fi
+    fi
+}
+
+setup_ufw() {
+    install_package ufw
+    ufw --force reset
+    ufw default deny incoming
+    ufw default allow outgoing
+    [ "$need_ssh" = "yes" ] && ufw limit ssh
+    [ "$need_ftp" = "yes" ] && ufw allow 21/tcp
+    [ "$need_samba" = "yes" ] && ufw allow samba
+    [ "$need_email" = "yes" ] && ufw allow 25/tcp
+    if ask "Is a web server required?"; then
+        ufw allow 80/tcp
+    fi
+    ufw --force enable
+    ufw status verbose
+}
+
+check_users() {
+    log_message "Normal users:"
+    awk -F: '$3>=1000 && $1!="nobody" {print $1}' /etc/passwd
+    log_message "Accounts with UID 0 (should only be root):"
+    awk -F: '$3==0 {print $1}' /etc/passwd
+    log_message "Admins:"
+    getent group sudo
+}
+
+delete_user() {
+    read -rp "Username to delete: " username
+    deluser --remove-home "$username"
+}
+
+change_password() {
+    read -rp "Username to change password for: " username
+    passwd "$username"
+}
+
+password_policy() {
+    install_package libpam-pwquality
+    cp /etc/login.defs /etc/login.defs.bak
+    sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS 90/' /etc/login.defs
+    sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS 7/' /etc/login.defs
+    sed -i 's/^PASS_WARN_AGE.*/PASS_WARN_AGE 14/' /etc/login.defs
+    log_message "Password policy updated."
+}
+
+disable_guest() {
+    if [ -d /etc/lightdm ]; then
+        mkdir -p /etc/lightdm/lightdm.conf.d
+        printf "[Seat:*]\nallow-guest=false\n" > /etc/lightdm/lightdm.conf.d/50-no-guest.conf
+        log_message "Guest login disabled. Restart to apply."
+    else
+        log_message "lightdm not found."
+    fi
+}
+
+fix_permissions() {
+    chmod 644 /etc/passwd
+    chmod 644 /etc/group
+    chmod 640 /etc/shadow
+    chmod 640 /etc/gshadow
+    log_message "File permissions fixed."
+}
+
+find_media() {
+    find /home -type f \( -iname "*.mp3" -o -iname "*.mp4" -o -iname "*.avi" -o -iname "*.mkv" -o -iname "*.wav" \)
+}
+
+show_ports() {
+    ss -tulpn
+}
+
+run_lynis() {
+    install_package lynis
+    lynis audit system
+}
+
+malware_scan() {
+    install_package clamav
+    systemctl stop clamav-freshclam
+    freshclam
+    systemctl start clamav-freshclam
+    clamscan -ri /home
+}
+
+manage_services() {
+    echo "1. View running services"
+    echo "2. Disable a service"
+    read -r choice
+    if [ "$choice" = "1" ]; then
+        systemctl --type=service --state=running
+    elif [ "$choice" = "2" ]; then
+        read -rp "Service name: " service_name
+        systemctl disable --now "$service_name"
+    fi
+}
+
+cleanup() {
+    apt-get autoclean
+    apt-get autoremove -y
+}
+
+show_menu() {
+    clear
+    cat << MENU
+============ Main Menu ============
+1.  Update/Upgrade
+2.  Answer service questions again
+3.  Setup SSH
+4.  Setup FTP
+5.  Setup Samba
+6.  Setup Email
+7.  Setup Firewall (UFW)
+8.  Check Users
+9.  Delete a User
+10. Change a User Password
+11. Password Policy
+12. Disable Guest Login
+13. Fix File Permissions
+14. Find Media Files
+15. Show Open Ports
+16. Run Lynis
+17. Malware Scan
+18. Manage Services
+19. Package Cleanup
+20. Exit
+===================================
+MENU
+}
+
 main() {
-    log_message "Script started."
-
-    # Check if script is run as root
     check_root
-
-    # Install necessary packages
-    for pkg in "${PACKAGES[@]}"; do
-        install_package "$pkg"
-    done
+    log_message "Script started."
+    ask_services
 
     while true; do
-        # Display the Main Menu
-        clear
-        neofetch
-        log_message 'Ｍａｉｎ Ｍｅｎｕ' | boxes -d stone -p a2v1
-
-        # Present options to the user in three columns
-        log_message "
-1.  Update/Upgrade             2.  Install Applications      3.  Configure SSH
-4.  Configure vsftpd           5.  UFW Setup                 6.  Security Enhancements
-7.  Package Cleanup            8.  Service Management        9.  Log Management
-10. Advanced Firewall Config   11. User Management           12. Backup System
-13. System Info & Health Check 14. Network Configuration     15. Scheduled Tasks
-16. System Performance         17. Install Unattended Upgrades 18. Network Traffic Analysis
-19. Execute Custom Script      20. Set Up Intrusion Detection 21. Perform Malware Scanning
-22. Run ARP Scan               23. Run Nmap Scan             24.Account Passswords
-25. Exit
-"
-        read -r option
-        if ! [[ "$option" =~ ^[0-9]+$ ]]; then
-            log_message "Invalid option. Please enter a number."
-            continue
-        fi
-
-        handle_option "$option"
-        log_message "Press Enter to continue..."
-        read
+        show_menu
+        read -rp "Choose an option: " option
+        case "$option" in
+            1) update_system ;;
+            2) ask_services ;;
+            3) setup_ssh ;;
+            4) setup_ftp ;;
+            5) setup_samba ;;
+            6) setup_email ;;
+            7) setup_ufw ;;
+            8) check_users ;;
+            9) delete_user ;;
+            10) change_password ;;
+            11) password_policy ;;
+            12) disable_guest ;;
+            13) fix_permissions ;;
+            14) find_media ;;
+            15) show_ports ;;
+            16) run_lynis ;;
+            17) malware_scan ;;
+            18) manage_services ;;
+            19) cleanup ;;
+            20) log_message "Exiting..."; exit 0 ;;
+            *) log_message "Invalid option." ;;
+        esac
+        read -rp "Press Enter to continue..." pause
     done
 }
 
-
-# Function to handle menu options
-handle_option() {
-    local option="$1"
-    case "$option" in
-        1)
-            log_message "Updating and upgrading system..."
-            sudo apt-get update -y && sudo apt-get upgrade -y
-            install_package unattended-upgrades
-            log_message "Update and Upgrade Complete"
-            sleep 1
-            ;;
-        2)
-            log_message "Installing applications..."
-            local applications=(tilix neofetch snapd git gufw arp)
-            for app in "${applications[@]}"; do
-                install_package "$app"
-            done
-            log_message "Applications installed."
-            ;;
-        3)
-            log_message "Editing SSH config..."
-            install_package openssh-server
-            sleep 0.5
-            sudo nano /etc/ssh/sshd_config
-            ;;
-        4)
-            install_package vsftpd
-            log_message "Editing FTP config..."
-            sleep 0.5
-            sudo nano /etc/vsftpd.conf
-            ;;
-        5)
-            log_message "Setting up UFW..."
-            sudo ufw default allow outgoing
-            sudo ufw default deny incoming
-            sudo ufw allow http
-            sudo ufw allow 80/tcp
-            sudo ufw allow 21/udp
-            sudo ufw limit 21/tcp
-            sudo ufw limit ssh
-            sudo ufw enable
-            clear
-            sudo systemctl status ufw.service
-            log_message "UFW setup complete."
-            sleep 2
-            ;;
-        6)
-            log_message "Running Security Enhancements..."
-            install_package lynis
-            sudo lynis audit system
-            ;;
-        7)
-            log_message "Performing Package Cleanup..."
-            sudo apt-get autoclean
-            sudo apt-get autoremove
-            ;;
-        8)
-            log_message "Managing Services..."
-            log_message "1. Kill a Service"
-            log_message "2. View Services"
-            read -r ser_man_opt
-            if [ "$ser_man_opt" -eq 1 ]; then
-                read -p "Enter Service name: " ser_name
-                pkill "$ser_name"
-            else
-                systemctl --type=service --state=running
-            fi
-            ;;
-        9)
-            log_message "Managing Logs..."
-            log_message "1. View a log file"
-            log_message "2. Clear a log file"
-            log_message "4. View Log Folder"
-            read -r log_option
-            case "$log_option" in
-                1)
-                    read -p "Enter the log file name to view: " log_file
-                    sudo cat /var/log/"$log_file"
-                    ;;
-                2)
-                    read -p "Enter the log file name to clear: " log_file
-                    sudo truncate -s 0 /var/log/"$log_file"
-                    ;;
-                3)
-                    ls /var/log
-                    ;;
-                *)
-                    log_message "Invalid option."
-                    ;;
-            esac
-            ;;
-        10)
-            log_message "Advanced Firewall Configuration..."
-            sleep 1.2
-            log_message "1. Allow a port"
-            log_message "2. Deny a port"
-            log_message "3. Limit a port"
-            read -r fw_option
-            case "$fw_option" in
-                1)
-                    read -p "Enter the port number to allow: " port
-                    sudo ufw allow "$port"
-                    ;;
-                2)
-                    read -p "Enter the port number to deny: " port
-                    sudo ufw deny "$port"
-                    ;;
-                3)
-                    read -p "Enter the port number to limit: " port
-                    sudo ufw limit "$port"
-                    ;;
-                *)
-                    log_message "Invalid option."
-                    ;;
-            esac
-            ;;
-        11)
-            log_message "Managing Users..."
-            log_message "1. Add a user"
-            log_message "2. Delete a user"
-            log_message "3. View Users"
-            log_message "4. Change User Password"
-            read -r user_option
-            case "$user_option" in
-                1)
-                    read -p "Enter the username to add: " username
-                    sudo adduser "$username"
-                    ;;
-                2)
-                    read -p "Enter the username to delete: " username
-                    sudo deluser --remove-home "$username"
-                    ;;
-                3)
-                    cat /etc/passwd
-                    ;;
-                4)
-                    read -p "Enter the username to change password: " username
-                    sudo passwd "$username"
-                    ;;
-                *)
-                    log_message "Invalid option."
-                    ;;
-            esac
-            ;;
-        12)
-            log_message "Backup and Restore Options..."
-            log_message "1. Create a Backup"
-            log_message "2. Mount Backup Storage"
-            log_message "3. Restore from Backup"
-            read -r backup_option
-            case "$backup_option" in
-                1)
-                    log_message "Starting backup process..."
-                    mkdir /mnt/backup
-                    local BACKUP_DIR="/mnt/backup"
-                    local DATE=$(date +%F_%T)
-                    local BACKUP_NAME="backup_$DATE"
-                    local EXCLUDE_LIST="--exclude=/proc --exclude=/sys --exclude=/tmp --exclude=/mnt --exclude=/dev --exclude=/run --exclude=/lost+found"
-                    if [ ! -d "$BACKUP_DIR" ]; then
-                        log_message "Backup directory $BACKUP_DIR does not exist. Please create it first."
-                        exit 1
-                    fi
-                    rsync -aAXv / "$BACKUP_DIR/$BACKUP_NAME" $EXCLUDE_LIST
-                    log_message "Backup completed successfully."
-                    ;;
-                2)
-                    log_message "Mounting backup storage..."
-                    local MOUNT_POINT="/mnt/backup"
-                    local DEVICE="/dev/sdX1"
-                    if [ ! -d "$MOUNT_POINT" ]; then
-                        sudo mkdir -p "$MOUNT_POINT"
-                    fi
-                    sudo mount "$DEVICE" "$MOUNT_POINT"
-                    if mountpoint -q "$MOUNT_POINT"; then
-                        log_message "Backup storage mounted successfully at $MOUNT_POINT."
-                    else
-                        log_message "Failed to mount backup storage."
-                    fi
-                    ;;
-                3)
-                    log_message "Restoring from backup..."
-                    local BACKUP_DIR="/mnt/backup"
-                    local RESTORE_DEST="/"
-                    log_message "Available backups:"
-                    ls "$BACKUP_DIR"
-                    read -p "Enter the name of the backup to restore: " BACKUP_NAME
-                    if [ ! -d "$BACKUP_DIR/$BACKUP_NAME" ]; then
-                        log_message "Backup $BACKUP_NAME does not exist."
-                        exit 1
-                    fi
-                    rsync -aAXv "$BACKUP_DIR/$BACKUP_NAME/" "$RESTORE_DEST"
-                    log_message "Restore completed successfully."
-                    ;;
-                *)
-                    log_message "Invalid option."
-                    ;;
-            esac
-            ;;
-        13)
-            log_message "System Information and Health Check..."
-            log_message "System Uptime:"
-            uptime
-            log_message "Memory Usage:"
-            free -h
-            log_message "Disk Usage:"
-            df -h
-            log_message "CPU Information:"
-            lscpu
-            sleep 2
-            install_package neofetch
-            neofetch
-            log_message "System Health Check Complete."
-            ;;
-        14)
-            log_message "Viewing Network Configuration..."
-            ifconfig
-            sleep 3
-            ;;
-        15)
-            log_message "Managing Scheduled Tasks..."
-            log_message "1. List scheduled tasks"
-            log_message "2. Add a scheduled task"
-            log_message "3. Remove a scheduled task"
-            read -r cron_option
-            case "$cron_option" in
-                1)
-                    crontab -l
-                    ;;
-                2)
-                    crontab -e
-                    ;;
-                3)
-                    read -p "Enter the line number to remove: " line_num
-                    crontab -l | sed "${line_num}d" | crontab -
-                    ;;
-                *)
-                    log_message "Invalid option."
-                    ;;
-            esac
-            ;;
-        16)
-            log_message "System Performance..."
-            log_message "1. Install and run htop"
-            log_message "2. Display CPU and memory usage"
-            read -r performance_option
-            case "$performance_option" in
-                1)
-                    install_package htop
-                    htop
-                    ;;
-                2)
-                    log_message "CPU and Memory Usage:"
-                    top -bn1 | head -n 10
-                    ;;
-                *)
-                    log_message "Invalid option."
-                    ;;
-            esac
-            ;;
-        17)
-            log_message "Installing and configuring Unattended Upgrades..."
-            install_package unattended-upgrades
-            sudo dpkg-reconfigure --priority=low unattended-upgrades
-            log_message "Unattended Upgrades configured."
-            ;;
-        18)
-            log_message "Network Traffic Analysis..."
-            install_package iftop
-            sudo iftop -i "$(ip route | grep default | awk '{print $5}')"
-            ;;
-        19)
-            log_message "Running custom script..."
-            read -p "Enter the full path to the custom script: " script_path
-            if [ -f "$script_path" ]; then
-                chmod +x "$script_path"
-                "$script_path"
-            else
-                log_message "File $script_path does not exist."
-            fi
-            ;;
-        20)
-            log_message "Setting up Intrusion Detection..."
-            install_package snort
-            sudo snort -A console -q -c /etc/snort/snort.conf -i "$(ip route | grep default | awk '{print $5}')"
-            ;;
-        21)
-            log_message "Performing Malware Scanning..."
-            sudo freshclam
-            sudo clamscan -r /
-            ;;
-        22)
-            log_message "Running ARP Scan..."
-            sudo arp-scan -l
-            ;;
-        23)
-            log_message "Running Nmap Scan..."
-            read -p "Enter the target IP address or range: " target_ip
-            sudo nmap -A "$target_ip"
-            ;;
-        24)
-          for i in ${users//,/ }
-          do
-              read -p "Change password for $i? (y/n): " confirm
-              if [[ $confirm == [Yy]* ]]; then
-                  echo "$i:$passwordchange" | sudo chpasswd
-                  log_message "Password for user $i changed."
-                  echo "$i:$passwordchange" >> Newusers
-              else
-                  echo "Skipped $i"
-              fi
-          done
-          ;;
-
-
-        25)
-            log_message "Exiting..."
-            exit 0
-            ;;
-        *)
-            log_message "Invalid option. Please select a valid number between 1 and 23."
-            ;;
-    esac
-}
-
-# Execute the main function
 main
